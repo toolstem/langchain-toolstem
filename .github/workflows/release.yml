@@ -1,0 +1,109 @@
+name: Release to npm
+
+# Publishes langchain-toolstem to npm when a `vX.Y.Z` tag is pushed.
+#
+# Flow:
+#   1. Tag must match package.json version exactly.
+#   2. Type-check + build.
+#   3. `npm publish` with provenance via npm Trusted Publishers (OIDC).
+#
+# To ship a new version:
+#   1. Bump version in package.json, commit, push to main
+#   2. `git tag vX.Y.Z && git push --tags`
+#
+# Authentication:
+#   - npm: OIDC via Trusted Publishers (configured on the npm package).
+#     No long-lived token. Requires `id-token: write` and npm CLI ≥ 11.5.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v0.1.0). Must already exist on the repo.'
+        required: true
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # required for npm provenance
+
+    steps:
+      - name: Checkout (tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify npm OIDC capability
+        run: |
+          set -euo pipefail
+          NPM_VERSION=$(npm --version)
+          echo "node: $(node --version)"
+          echo "npm:  $NPM_VERSION"
+          MIN="11.5.1"
+          if [ "$(printf '%s\n' "$MIN" "$NPM_VERSION" | sort -V | head -n1)" != "$MIN" ]; then
+            echo "::error::npm $NPM_VERSION is below required $MIN for OIDC Trusted Publishers"
+            exit 1
+          fi
+
+      - name: Verify tag matches package.json version
+        env:
+          TAG_INPUT: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG_NAME="${TAG_INPUT:-$GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "Tag version:     $TAG_VERSION"
+          echo "Package version: $PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION). Refusing to publish."
+            exit 1
+          fi
+
+      - name: Install dependencies (clean)
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm (OIDC + provenance)
+        run: npm publish --provenance --access public
+
+      - name: Verify published version
+        env:
+          TAG_INPUT: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG_NAME="${TAG_INPUT:-$GITHUB_REF_NAME}"
+          EXPECTED="${TAG_NAME#v}"
+          for i in 1 2 3 4 5; do
+            PUBLISHED=$(npm view "langchain-toolstem@${EXPECTED}" version 2>/dev/null || echo "")
+            echo "Attempt $i: registry shows '$PUBLISHED' for version $EXPECTED"
+            if [ "$PUBLISHED" = "$EXPECTED" ]; then
+              echo "::notice::Published langchain-toolstem@$EXPECTED"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Published version did not converge to $EXPECTED within 50s"
+          exit 1
