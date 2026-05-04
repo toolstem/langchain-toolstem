@@ -1,0 +1,70 @@
+{
+  "name": "langchain-toolstem",
+  "version": "0.1.0",
+  "description": "LangChain.js tools wrapping Toolstem MCP servers (Finance + SEC EDGAR). Supports Apify token auth and x402 USDC micropayments.",
+  "license": "MIT",
+  "author": "Toolstem <admin@toolstem.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toolstem/langchain-toolstem.git"
+  },
+  "keywords": [
+    "langchain",
+    "mcp",
+    "finance",
+    "sec",
+    "x402",
+    "agents",
+    "langgraph",
+    "toolstem"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./finance": {
+      "import": "./dist/finance.js",
+      "types": "./dist/finance.d.ts"
+    },
+    "./sec": {
+      "import": "./dist/sec.js",
+      "types": "./dist/sec.d.ts"
+    },
+    "./x402": {
+      "import": "./dist/x402.js",
+      "types": "./dist/x402.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/mcp-adapters": "^0.6.0"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": "1.12.3"
+  },
+  "peerDependencies": {
+    "@langchain/langgraph": "^0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/langgraph": {
+      "optional": true
+    }
+  },
+  "optionalDependencies": {
+    "viem": "^2.21.0",
+    "x402-fetch": "^0.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
