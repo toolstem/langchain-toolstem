@@ -1,6 +1,6 @@
 {
   "name": "langchain-toolstem",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "LangChain.js tools wrapping Toolstem MCP servers (Finance + SEC EDGAR). Supports Apify token auth and x402 USDC micropayments.",
   "license": "MIT",
   "author": "Toolstem <admin@toolstem.com>",
