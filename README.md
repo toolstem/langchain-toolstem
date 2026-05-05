@@ -3,116 +3,94 @@
 LangChain.js tools wrapping [Toolstem](https://toolstem.com) MCP servers.
 
 Two production-ready MCP servers — **Finance** and **SEC EDGAR** — exposed as native
-`StructuredTool` instances you can drop straight into any LangChain / LangGraph agent.
+LangChain tools you can drop straight into any LangChain / LangGraph agent. Tool
+names and JSON Schemas are discovered live via standard MCP `tools/list` — no
+hardcoded definitions.
 
-Browse all available connectors in the [Toolstem Connectors Directory](https://toolstem.com/connectors).
+```
+Finance — 3 tools                 SEC EDGAR — 5 tools
+─────────────────                 ───────────────────
+get_stock_snapshot                get_company_filings_summary
+get_company_metrics               get_insider_signal
+compare_companies                 get_institutional_signal
+                                  get_material_events_digest
+                                  compare_disclosure_signals
+```
+
+---
+
+## Wallet prerequisite
+
+> **These helpers require a funded Base mainnet USDC wallet.** Each `tools/call`
+> costs **0.01 USDC** (paid via x402 / EIP-3009 `transferWithAuthorization`).
+> `initialize` and `tools/list` are **free**, so you can discover the tool
+> catalog without a wallet — but agent invocations will return HTTP 402 until
+> a payment header is signed.
+
+Fund the wallet you'll sign with:
+
+- ≥ 0.10 USDC on Base mainnet (one tool call = 0.01 USDC; load enough headroom)
+- a few cents of ETH on Base for L2 gas (signing is gasless via EIP-3009, but the
+  facilitator settlement transaction still needs gas)
+
+Bridge USDC to Base from any major exchange or via [Coinbase Onramp](https://www.coinbase.com/onramp).
 
 ---
 
 ## Install
 
 ```bash
-npm install langchain-toolstem @langchain/core @langchain/mcp-adapters
+npm install langchain-toolstem @langchain/core
+# x402 payment path requires:
+npm install viem @x402/core @x402/evm
 ```
 
 ---
 
-## Authentication
-
-Two paths — pick one:
-
-| Path | What you need | Cost model |
-|------|---------------|------------|
-| **Apify token** | [Apify](https://apify.com) account + token | Subscription / usage-based |
-| **x402 USDC** | Base mainnet wallet with ≥ $0.10 USDC | $0.01 per tool call |
-
----
-
-## Path 1 — Apify token (simple)
+## Quick start — Finance
 
 ```ts
-import { createFinanceTools, createSecTools } from "langchain-toolstem";
-import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { createFinanceTools } from "langchain-toolstem/finance";
+import { createX402Fetch } from "langchain-toolstem/x402";
 
-const financeTools = await createFinanceTools({ apifyToken: process.env.APIFY_TOKEN });
-const secTools     = await createSecTools({ apifyToken: process.env.APIFY_TOKEN });
+// 1. Build a fetch that auto-signs USDC payments on HTTP 402.
+const fetchPay = await createX402Fetch({
+  privateKey: process.env.X402_PRIVATE_KEY!, // 0x-prefixed Base mainnet private key
+  maxPaymentUsd: 0.05,                       // safety cap per call (default: 1.00)
+});
+
+// 2. Discover the 3 Finance tools (initialize + tools/list, free).
+const tools = await createFinanceTools({ fetch: fetchPay });
 
 const agent = createReactAgent({
   llm: new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 }),
-  tools: [...financeTools, ...secTools],
+  tools,
 });
 
+// 3. Invocations route through the paying fetch — each tools/call = 0.01 USDC.
 const result = await agent.invoke({
-  messages: [{
-    role: "user",
-    content: "Compare AAPL, MSFT, and GOOGL on P/E ratio. Then check for any recent TSLA 8-K filings.",
-  }],
+  messages: [
+    { role: "user", content: "Compare AAPL, MSFT, and GOOGL on P/E, growth, and margins." },
+  ],
 });
 
 console.log(result.messages.at(-1)?.content);
 ```
 
-### Import from subpath (tree-shakeable)
-
-```ts
-import { createFinanceTools } from "langchain-toolstem/finance";
-import { createSecTools }     from "langchain-toolstem/sec";
-```
-
 ---
 
-## Path 2 — x402 USDC micropayments (advanced)
-
-No Apify account needed. The agent's own wallet pays $0.01 USDC per tool call on Base mainnet.
-
-### Additional install
-
-```bash
-npm install viem x402-fetch
-```
-
-### How it works
-
-`@langchain/mcp-adapters` uses plain HTTP and doesn't support custom fetch.
-`createX402Proxy` starts a local reverse proxy that intercepts HTTP 402 responses,
-signs USDC payments from your wallet via `x402-fetch`, and forwards transparently to
-`mcp.toolstem.com`. LangChain points at `http://localhost:4021/mcp/finance` — same
-MCP protocol, payments handled out-of-band.
-
-### End-to-end LangGraph ReAct agent example
+## Quick start — SEC EDGAR
 
 ```ts
-import { createX402Proxy } from "langchain-toolstem/x402";
-import { MultiServerMCPClient } from "@langchain/mcp-adapters";
-import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { createSecTools } from "langchain-toolstem/sec";
+import { createX402Fetch } from "langchain-toolstem/x402";
 
-// Start the local x402 proxy (Base mainnet wallet with ≥ $0.10 USDC)
-const proxy = await createX402Proxy({
-  privateKey: process.env.X402_PRIVATE_KEY!,   // 0x-prefixed hex key
-  port: 4021,                                   // optional, default 4021
-  maxPaymentUsd: 1.0,                           // max auto-approved per call
-});
-
-// Point @langchain/mcp-adapters at the proxy — transport MUST be "http"
-// (not "streamable_http" — see langchain-mcp-adapters issue #322)
-const client = new MultiServerMCPClient({
-  toolstem_finance: {
-    transport: "http",
-    url: `${proxy.url}/mcp/finance`,
-  },
-  toolstem_sec: {
-    transport: "http",
-    url: `${proxy.url}/mcp/sec`,
-  },
-});
-
-const tools = await client.getTools();
-console.log("Loaded tools:", tools.map(t => t.name).join(", "));
-// → get_stock_snapshot, get_company_metrics, compare_companies,
-//   get_insider_signals, get_institutional_holdings, get_material_events,
-//   get_earnings_signals, get_filings_summary
+const fetchPay = await createX402Fetch({ privateKey: process.env.X402_PRIVATE_KEY! });
+const tools = await createSecTools({ fetch: fetchPay });
 
 const agent = createReactAgent({
   llm: new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 }),
@@ -120,107 +98,132 @@ const agent = createReactAgent({
 });
 
 const result = await agent.invoke({
-  messages: [{
-    role: "user",
-    content:
-      "Has TSLA disclosed any material 8-K events in the last 90 days, " +
-      "and what are insiders doing? Also pull AAPL's current P/E ratio.",
-  }],
+  messages: [
+    {
+      role: "user",
+      content:
+        "Has TSLA had any material 8-K events in the last 90 days? Also flag any insider Form 4 activity.",
+    },
+  ],
 });
+```
 
-console.log(result.messages.at(-1)?.content);
+---
 
-await client.close();
+## Minimal viem wallet setup
+
+If you don't already have a wallet, generate one with `viem`:
+
+```ts
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+
+const privateKey = generatePrivateKey();        // SAVE THIS — it's your wallet key
+const account = privateKeyToAccount(privateKey);
+console.log("Address:", account.address);       // fund this address on Base mainnet
+console.log("Private key:", privateKey);        // pass to createX402Fetch / createX402Proxy
+```
+
+⚠️ **Treat the private key like a credit card number.** Anyone with it can spend
+your Base USDC and ETH. Store it in a secret manager (1Password, AWS Secrets
+Manager, Vercel env vars), never commit it.
+
+---
+
+## API
+
+### `createX402Fetch(opts)` → `Promise<typeof fetch>`
+
+Returns a fetch-compatible function that:
+
+1. Issues the request normally.
+2. On HTTP 402, parses `payment-required` (base64-encoded `PaymentRequired`) per
+   the x402 v2 wire format.
+3. Signs an EIP-3009 USDC `transferWithAuthorization` for the selected
+   requirement using `@x402/evm` (Base mainnet, scheme `exact`).
+4. Re-issues the original request with the `PAYMENT-SIGNATURE` header.
+
+```ts
+type X402FetchOptions = {
+  privateKey: string;       // 0x-prefixed Base mainnet private key
+  maxPaymentUsd?: number;   // safety cap per call, defaults to 1.0
+};
+```
+
+### `createFinanceTools(opts?)` / `createSecTools(opts?)` → `Promise<DynamicStructuredTool[]>`
+
+```ts
+type ToolstemClientOptions = {
+  fetch?: typeof fetch;            // pass createX402Fetch result for paid calls
+  headers?: Record<string, string>; // extra HTTP headers
+  url?: string;                    // override the upstream MCP endpoint
+};
+```
+
+Both helpers run standard MCP `initialize` + `tools/list` against
+`https://mcp.toolstem.com/mcp/finance` or `/mcp/sec` and return the discovered
+tools. **No tool names are hardcoded** — if Toolstem ships a new tool tomorrow,
+your agent picks it up on the next process restart.
+
+### `createX402Proxy(opts)` → `Promise<{ url, close }>`
+
+Convenience wrapper for environments that can only point at a plain `http://`
+URL (e.g. the high-level `MultiServerMCPClient` from `@langchain/mcp-adapters`,
+which does not currently accept a custom fetch). Spawns a local reverse proxy
+that wraps `createX402Fetch` and forwards to `mcp.toolstem.com`.
+
+```ts
+const proxy = await createX402Proxy({ privateKey: process.env.X402_PRIVATE_KEY! });
+// → http://localhost:4021
+// Point any MCP client at `${proxy.url}/mcp/finance` or `${proxy.url}/mcp/sec`.
 await proxy.close();
 ```
 
 ---
 
-## Available tools
+## Discovery without payment
 
-### Finance (`https://mcp.toolstem.com/mcp/finance`)
-
-| Tool | Description |
-|------|-------------|
-| `get_stock_snapshot` | Real-time price, volume, daily change |
-| `get_company_metrics` | P/E, EPS, market cap, revenue growth, margins |
-| `compare_companies` | Side-by-side metric comparison for multiple tickers |
-
-### SEC EDGAR (`https://mcp.toolstem.com/mcp/sec`)
-
-| Tool | Description |
-|------|-------------|
-| `get_insider_signals` | Form 4 insider buy/sell signals |
-| `get_institutional_holdings` | 13-F institutional position data |
-| `get_material_events` | 8-K material event disclosures |
-| `get_earnings_signals` | Earnings surprise and guidance signals |
-| `get_filings_summary` | Aggregated EDGAR filings overview |
-
----
-
-## API reference
-
-### `createFinanceTools(opts?)`
+`initialize` and `tools/list` are unmetered — useful for static catalogs, prompt
+debugging, or CI smoke tests.
 
 ```ts
 import { createFinanceTools } from "langchain-toolstem/finance";
 
-const tools = await createFinanceTools({
-  apifyToken?: string,   // Apify API token
-  headers?: Record<string, string>,  // extra HTTP headers
-});
-// → Promise<StructuredTool[]>
+const tools = await createFinanceTools(); // no fetch override → free discovery
+console.log(tools.map((t) => t.name));
+// → [ 'get_stock_snapshot', 'get_company_metrics', 'compare_companies' ]
 ```
 
-### `createSecTools(opts?)`
+The library ships an integration test (`__tests__/discovery.live.test.ts`) that
+hits live `mcp.toolstem.com` and asserts these exact 3 finance + 5 SEC names.
 
-```ts
-import { createSecTools } from "langchain-toolstem/sec";
-
-const tools = await createSecTools({
-  apifyToken?: string,
-  headers?: Record<string, string>,
-});
-// → Promise<StructuredTool[]>
-```
-
-### `createX402Proxy(opts)`
-
-```ts
-import { createX402Proxy } from "langchain-toolstem/x402";
-
-const proxy = await createX402Proxy({
-  privateKey: string,       // Base mainnet 0x-prefixed private key (required)
-  port?: number,            // default: 4021
-  maxPaymentUsd?: number,   // default: 1.0
-  upstream?: string,        // default: "https://mcp.toolstem.com"
-});
-// → Promise<{ url: string, close: () => Promise<void> }>
-
-await proxy.close(); // gracefully stop the proxy
+```bash
+npm run test:live
 ```
 
 ---
 
-## Notes
+## Networks
 
-- `transport` must be `"http"` (not `"streamable_http"`) per
-  [@langchain/mcp-adapters issue #322](https://github.com/langchain-ai/langchainjs/issues/322).
-- For x402 path, `viem` and `x402-fetch` are optional peer dependencies — install them separately.
-- The proxy uses `privateKeyToAccount` from `viem/accounts` (a `LocalAccount`),
-  not `createWalletClient`, which keeps the type surface minimal and compatible.
+- **Base mainnet** (`eip155:8453`) — production. USDC contract
+  `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. Toolstem's facilitator settles
+  to `0xB009DA692cF3EFf7567bF727b8B2F3b5BFc3383E`.
+
+The default `createX402Fetch` registers the EVM exact scheme and accepts any
+`eip155:*` requirement returned by the server.
 
 ---
 
-## Links
+## Why a paying fetch instead of an MCP middleware?
 
-- [Toolstem](https://toolstem.com)
-- [Toolstem Connectors Directory](https://toolstem.com/connectors)
-- [Toolstem Finance MCP](https://mcp.toolstem.com/mcp/finance)
-- [Toolstem SEC MCP](https://mcp.toolstem.com/mcp/sec)
+`@langchain/mcp-adapters`' `MultiServerMCPClient` does not currently accept a
+custom `fetch`, but the underlying `StreamableHTTPClientTransport` from
+`@modelcontextprotocol/sdk` does. This package wires the two together: the MCP
+SDK transport is constructed directly with the paying fetch, then handed to
+`loadMcpTools` for LangChain conversion. That way the request/response loop is
+plain HTTP-with-payment-headers — no extra hops, no protocol drift.
 
 ---
 
 ## License
 
-MIT © 2026 Toolstem
+MIT — © Toolstem
