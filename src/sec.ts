@@ -1,56 +1,47 @@
 /**
  * Toolstem SEC EDGAR MCP tools for LangChain.js.
  *
- * Available tools:
- *   - get_insider_signals        — Form 4 insider buy/sell signals
- *   - get_institutional_holdings — 13-F institutional position data
- *   - get_material_events        — 8-K material event disclosures
- *   - get_earnings_signals       — Earnings surprise and guidance signals
- *   - get_filings_summary        — Aggregated EDGAR filings overview
+ * Tool names and schemas are discovered live via MCP `tools/list` — no
+ * hardcoded list. As of the v0.1 server the proxy exposes 5 tools:
+ *   - get_company_filings_summary
+ *   - get_insider_signal
+ *   - get_institutional_signal
+ *   - get_material_events_digest
+ *   - compare_disclosure_signals
  *
- * Authentication:
- *   - Apify token:  pass `apifyToken` in opts.
- *   - x402 (USDC):  omit token; start a proxy with createX402Proxy() and pass the
- *                   proxy URL via the parent MultiServerMCPClient instead.
+ * `initialize` and `tools/list` are free. Each `tools/call` costs 0.01 USDC
+ * (Base mainnet). Pass `fetch: await createX402Fetch({ privateKey })` to make
+ * paid calls automatically.
  *
  * @example
  * ```ts
  * import { createSecTools } from "langchain-toolstem/sec";
+ * import { createX402Fetch } from "langchain-toolstem/x402";
  *
- * const tools = await createSecTools({ apifyToken: process.env.APIFY_TOKEN });
+ * const fetchPay = await createX402Fetch({ privateKey: process.env.X402_PRIVATE_KEY! });
+ * const tools = await createSecTools({ fetch: fetchPay });
  * ```
  */
 
-import { MultiServerMCPClient } from "@langchain/mcp-adapters";
-import type { StructuredTool } from "@langchain/core/tools";
+import type { DynamicStructuredTool } from "@langchain/core/tools";
+import { discoverToolstemTools } from "./mcp.js";
 import type { ToolstemClientOptions } from "./types.js";
 
 const SEC_URL = "https://mcp.toolstem.com/mcp/sec";
 
 /**
- * Create LangChain StructuredTool instances for the Toolstem SEC EDGAR MCP server.
+ * Create LangChain tools for the Toolstem SEC EDGAR MCP server.
  *
- * @param opts.apifyToken  Apify API token for simple auth (no wallet required).
- * @param opts.headers     Extra headers merged with auth header (if any).
- * @returns Array of LangChain StructuredTool instances ready to pass to an agent.
+ * @param opts.fetch    Custom fetch (use `createX402Fetch` to enable paid calls).
+ * @param opts.headers  Extra HTTP headers to include in every MCP request.
+ * @param opts.url      Override the upstream MCP URL.
  */
 export async function createSecTools(
   opts: ToolstemClientOptions = {}
-): Promise<StructuredTool[]> {
-  const { apifyToken, headers: extraHeaders = {} } = opts;
-
-  const headers: Record<string, string> = { ...extraHeaders };
-  if (apifyToken) {
-    headers["Authorization"] = `Bearer ${apifyToken}`;
-  }
-
-  const client = new MultiServerMCPClient({
-    toolstem_sec: {
-      transport: "http",
-      url: SEC_URL,
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    },
+): Promise<DynamicStructuredTool[]> {
+  return discoverToolstemTools({
+    serverName: "toolstem_sec",
+    defaultUrl: SEC_URL,
+    opts,
   });
-
-  return client.getTools() as Promise<StructuredTool[]>;
 }
