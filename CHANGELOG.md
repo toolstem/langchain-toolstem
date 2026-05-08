@@ -5,6 +5,12 @@ All notable changes to `langchain-toolstem` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-05-08
+
+### Security
+- `createX402Proxy` now binds `127.0.0.1` by default instead of `0.0.0.0`. This prevents accidental exposure of the wallet signing proxy on public networks.
+- New optional `host` parameter on `X402ProxyOptions` for users who explicitly need network-wide binding.
+
 ## [0.1.2] - 2026-05-05
 
 ### Fixed

@@ -37,6 +37,8 @@ export interface X402ProxyHandle {
 export interface X402ProxyOptions extends X402FetchOptions {
   /** Local port to listen on. Defaults to 4021. */
   port?: number;
+  /** Bind address. Defaults to '127.0.0.1' (local-only). Set to '0.0.0.0' for network access. */
+  host?: string;
   /** Upstream MCP host. Defaults to "https://mcp.toolstem.com". */
   upstream?: string;
 }

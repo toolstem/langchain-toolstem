@@ -166,6 +166,7 @@ export async function createX402Proxy(
   const {
     privateKey,
     port = DEFAULT_PORT,
+    host = '127.0.0.1',
     maxPaymentUsd = DEFAULT_MAX_PAYMENT_USD,
     upstream = DEFAULT_UPSTREAM,
   } = opts;
@@ -214,8 +215,8 @@ export async function createX402Proxy(
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, () => {
-      console.log(`[x402-proxy] listening on http://localhost:${port}`);
+    server.listen(port, host, () => {
+      console.log(`[x402-proxy] listening on http://${host}:${port}`);
       console.log(`[x402-proxy] forwarding -> ${upstream}`);
       resolve();
     });
