@@ -178,6 +178,10 @@ const proxy = await createX402Proxy({ privateKey: process.env.X402_PRIVATE_KEY! 
 await proxy.close();
 ```
 
+> **Security note:** The proxy binds `127.0.0.1` (localhost) by default. If you
+> need network-wide access, pass `host: '0.0.0.0'` — but ensure the machine is
+> behind a firewall or VPN, as the proxy holds your wallet signing key in memory.
+
 ---
 
 ## Discovery without payment
