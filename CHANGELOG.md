@@ -5,6 +5,11 @@ All notable changes to `langchain-toolstem` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-06-04
+
+### Documentation
+- **Hosted endpoint as default path (README update).** The README now emphasizes the hosted x402 endpoints as the default path and fixes the SEC tiered pricing. Documentation-only change (PR #4, merged); no payment, auth, or x402 logic touched. Republished so the updated README propagates to mcp.so and Glama.
+
 ## [0.1.3] - 2026-05-08
 
 ### Security
