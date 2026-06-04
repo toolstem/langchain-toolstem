@@ -2,10 +2,16 @@
 
 LangChain.js tools wrapping [Toolstem](https://toolstem.com) MCP servers.
 
-Two production-ready MCP servers — **Finance** and **SEC EDGAR** — exposed as native
+Two MCP servers — **Finance** and **SEC EDGAR** — exposed as native
 LangChain tools you can drop straight into any LangChain / LangGraph agent. Tool
 names and JSON Schemas are discovered live via standard MCP `tools/list` — no
 hardcoded definitions.
+
+By default these helpers connect to the **hosted Toolstem endpoints** at
+`https://mcp.toolstem.com/mcp/finance` and `https://mcp.toolstem.com/mcp/sec`.
+**No API key, no infra, no setup** — you don't run a server or bring an upstream
+data key. Calls are billed per-call via x402 (USDC on Base mainnet) straight from
+the agent's wallet.
 
 ```
 Finance — 3 tools                 SEC EDGAR — 5 tools
@@ -22,14 +28,22 @@ compare_companies                 get_institutional_signal
 ## Wallet prerequisite
 
 > **These helpers require a funded Base mainnet USDC wallet.** Each `tools/call`
-> costs **0.01 USDC** (paid via x402 / EIP-3009 `transferWithAuthorization`).
+> is billed per-call via x402 / EIP-3009 `transferWithAuthorization`.
 > `initialize` and `tools/list` are **free**, so you can discover the tool
 > catalog without a wallet — but agent invocations will return HTTP 402 until
 > a payment header is signed.
 
+Per-call pricing (paid in USDC on Base mainnet):
+
+- **Finance** — **$0.01** per `tools/call`.
+- **SEC EDGAR** — tiered by tool: **$0.005** (`get_company_filings_summary`),
+  **$0.05** (`get_insider_signal`, `get_institutional_signal`), **$0.50**
+  (`get_material_events_digest`, `compare_disclosure_signals`).
+
 Fund the wallet you'll sign with:
 
-- ≥ 0.10 USDC on Base mainnet (one tool call = 0.01 USDC; load enough headroom)
+- enough USDC on Base mainnet to cover your expected call volume at the prices
+  above, plus headroom (the per-call `maxPaymentUsd` cap defaults to 1.00)
 - a few cents of ETH on Base for L2 gas (signing is gasless via EIP-3009, but the
   facilitator settlement transaction still needs gas)
 
