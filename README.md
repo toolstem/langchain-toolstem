@@ -1,6 +1,14 @@
 # langchain-toolstem
 
+[![npm version](https://img.shields.io/npm/v/langchain-toolstem)](https://www.npmjs.com/package/langchain-toolstem)
+[![npm downloads](https://img.shields.io/npm/dw/langchain-toolstem)](https://www.npmjs.com/package/langchain-toolstem)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+
 LangChain.js tools wrapping [Toolstem](https://toolstem.com) MCP servers.
+
+## What this does
+
+`langchain-toolstem` wraps both Toolstem MCP servers — **Finance** and **SEC EDGAR** — as native LangChain tools and handles x402 payment automatically. Pass a funded Base mainnet wallet key and every `tools/call` is paid per-call in USDC via EIP-3009; there are no API keys, subscriptions, or invoices. Tool names and schemas are discovered live via MCP `tools/list`, so new Toolstem tools appear without a library upgrade.
 
 Two MCP servers — **Finance** and **SEC EDGAR** — exposed as native
 LangChain tools you can drop straight into any LangChain / LangGraph agent. Tool
@@ -124,6 +132,59 @@ const result = await agent.invoke({
 
 ---
 
+## Quick start — Finance + SEC in one agent
+
+Load both tool sets and hand them to a single agent. The same paying fetch covers every call across both servers:
+
+```ts
+import { ChatOpenAI } from "@langchain/openai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { createFinanceTools } from "langchain-toolstem/finance";
+import { createSecTools } from "langchain-toolstem/sec";
+import { createX402Fetch } from "langchain-toolstem/x402";
+
+// One paying fetch, shared across both servers.
+const fetchPay = await createX402Fetch({ privateKey: process.env.X402_PRIVATE_KEY! });
+
+// Discover Finance (3 tools) + SEC EDGAR (5 tools) and merge them.
+const tools = [
+  ...(await createFinanceTools({ fetch: fetchPay })),
+  ...(await createSecTools({ fetch: fetchPay })),
+];
+
+const agent = createReactAgent({
+  llm: new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 }),
+  tools,
+});
+
+const result = await agent.invoke({
+  messages: [
+    {
+      role: "user",
+      content:
+        "Give me a snapshot of NVDA (Finance) and flag any material 8-K events it filed in the last 90 days (SEC).",
+    },
+  ],
+});
+
+console.log(result.messages.at(-1)?.content);
+// The agent calls get_stock_snapshot (Finance, $0.01) and
+// get_material_events_digest (SEC, $0.50) — each auto-paid in USDC via x402.
+```
+
+---
+
+## Pricing summary
+
+Per-call, paid in USDC on Base mainnet via x402:
+
+- **Finance** — $0.01 per `tools/call`. Full table: [toolstem-mcp-server README](https://github.com/toolstem/toolstem-mcp-server#pricing).
+- **SEC EDGAR** — tiered $0.005–$0.50 per `tools/call`. Full table: [toolstem-sec-mcp-server README](https://github.com/toolstem/toolstem-sec-mcp-server#pricing).
+
+`initialize` and `tools/list` are always free. Try the tools live in the [Toolstem playground](https://www.toolstem.com/playground/).
+
+---
+
 ## Minimal viem wallet setup
 
 If you don't already have a wallet, generate one with `viem`:
@@ -239,6 +300,12 @@ custom `fetch`, but the underlying `StreamableHTTPClientTransport` from
 SDK transport is constructed directly with the paying fetch, then handed to
 `loadMcpTools` for LangChain conversion. That way the request/response loop is
 plain HTTP-with-payment-headers — no extra hops, no protocol drift.
+
+---
+
+## Python
+
+Python users: see [`langchain-toolstem`](https://pypi.org/project/langchain-toolstem/) on PyPI for the equivalent helpers.
 
 ---
 
